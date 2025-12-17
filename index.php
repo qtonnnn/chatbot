@@ -1,22 +1,36 @@
 <?php
 session_start();
 
+
 /**
  * ==========================================
  * KONFIGURASI (DATABASE & API KEY)
  * ==========================================
  */
-$DB_HOST = "localhost";
-$DB_USER = "root";
-$DB_PASS = "";     // Ubah sesuai password XAMPP Anda (default kosong)
-$DB_NAME = "chatbot";
 
-// API KEY OPENROUTER (Wajib diisi agar Bot pintar)
-$OPENROUTER_API_KEY = "sk-or-v1-*********************************************8"; 
+// Load environment variables if .env file exists
+if (file_exists(__DIR__ . '/.env')) {
+    $lines = file(__DIR__ . '/.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        if (strpos(trim($line), '#') === 0) continue;
+        list($name, $value) = explode('=', $line, 2);
+        $_ENV[trim($name)] = trim($value);
+    }
+}
+
+$DB_HOST = $_ENV['DB_HOST'] ?? "localhost";
+$DB_USER = $_ENV['DB_USER'] ?? "root";
+$DB_PASS = $_ENV['DB_PASS'] ?? "";     // Ubah sesuai password XAMPP Anda (default kosong)
+$DB_NAME = $_ENV['DB_NAME'] ?? "chatbot";
+
+$OPENROUTER_API_KEY = $_ENV['OPENROUTER_API_KEY'] ?? ""; 
+
+// Nomor telepon untuk pemesanan
+$ORDER_PHONE_NUMBER = $_ENV['ORDER_PHONE_NUMBER'] ?? "085791455813";
 
 // Metadata untuk OpenRouter (Wajib)
-$SITE_URL = "http://localhost/chat"; 
-$SITE_TITLE = "Chat Toko Saya";     
+$SITE_URL = $_ENV['SITE_URL'] ?? "http://localhost/chat"; 
+$SITE_TITLE = $_ENV['SITE_TITLE'] ?? "Chat Toko Saya";     
 
 /**
  * ==========================================
@@ -289,10 +303,11 @@ if (isset($_GET['action'])) {
                 // RAG Logic
                 $context = cari_konteks_produk($msg, $mysqli);
 
+
                 $system_prompt = "Kamu adalah CS Toko Komputer yang ramah. Jawab dalam Bahasa Indonesia.\n" .
                                  "Jika user tanya harga/stok, gunakan data ini:\n" . $context . 
                                  "\nJika tidak ada di data, jawab bahwa stok habis atau tidak tersedia.\n" .
-                                 "\nPENTING: Jika user ingin memesan/membeli produk, berikan nomor telepon: 08500867 untuk kontak pemesanan.";
+                                 "\nPENTING: Jika user ingin memesan/membeli produk, berikan nomor telepon: $ORDER_PHONE_NUMBER untuk kontak pemesanan.";
 
                 // Build History (System + Last 6 messages)
                 $history = [["role" => "system", "content" => $system_prompt]];
@@ -320,12 +335,13 @@ if (isset($_GET['action'])) {
             $stmt->bind_param('is', $id, $reply);
             $stmt->execute();
 
+
             // Cek intent pemesanan user dan tambahkan nomor telepon jika diperlukan
             if (deteksi_intent_pemesanan($msg)) {
                 // Cek apakah nomor telepon sudah ada di response bot
-                if (strpos($reply, '08500867') === false) {
+                if (strpos($reply, $ORDER_PHONE_NUMBER) === false) {
                     // Tambahkan nomor telepon ke response
-                    $reply_with_phone = $reply . "\n\n📞 **Untuk pemesanan, silakan hubungi:** 08500867";
+                    $reply_with_phone = $reply . "\n\n📞 **Untuk pemesanan, silakan hubungi:** " . $ORDER_PHONE_NUMBER;
                     
                     // Update pesan bot dengan nomor telepon
                     $stmt = $mysqli->prepare('UPDATE chat_messages SET message=? WHERE session_id=? AND sender=\'bot\' ORDER BY id DESC LIMIT 1');
@@ -767,8 +783,9 @@ if (isset($_GET['action'])) {
         // Convert Newlines to <br> for display
         let cleanText = text.replace(/\n/g, '<br>');
         
+
         // Replace phone number with WhatsApp link if it's the bot's message
-        if (sender === 'bot' && text.includes('08500867')) {
+        if (sender === 'bot' && text.includes('085791455813')) {
             cleanText = text.replace(/(\d{12})/g, '<a href="https://wa.me/$1?text=Halo,%20saya%20tertarik%20dengan%20produk%20yang%20Anda%20jual" target="_blank" class="whatsapp-link">$1</a>');
         }
         
