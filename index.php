@@ -12,7 +12,7 @@ $DB_PASS = "";     // Ubah sesuai password XAMPP Anda (default kosong)
 $DB_NAME = "chatbot";
 
 // API KEY OPENROUTER (Wajib diisi agar Bot pintar)
-$OPENROUTER_API_KEY = "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"; 
+$OPENROUTER_API_KEY = "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"; 
 
 // Metadata untuk OpenRouter (Wajib)
 $SITE_URL = "http://localhost/chat"; 
@@ -117,6 +117,44 @@ function cari_konteks_produk($keyword, $mysqli) {
     return "DATA PRODUK DARI DATABASE:\n" . implode("\n", array_unique($found_products)) . "\n\n";
 }
 
+
+
+// Fungsi deteksi intent pemesanan
+function deteksi_intent_pemesanan($message) {
+    // Pattern kata kunci yang menunjukkan user ingin memesan
+    $purchase_keywords = [
+        'mau pesan', 'mau order', 'memesan', 'pemesanan',
+        'order', 'beli', 'pembelian', 'beli ini', 'beli yang',
+        'pilih produk', 'take this', 'saya mau', 'bisa pesan',
+        'cara pesan', 'proses order', 'transaksi', 'checkout',
+        'bayar', 'pembayaran', 'ongkir', 'kirim', 'delivery',
+        'stok ada', 'ready', 'tersedia', 'tersedia tidak',
+        'stock', 'ready stock', 'stock ada'
+    ];
+    
+    $message_lower = strtolower($message);
+    
+    foreach ($purchase_keywords as $keyword) {
+        if (strpos($message_lower, $keyword) !== false) {
+            return true;
+        }
+    }
+    
+    // Cek juga jika user menyebutkan produk spesifik + kata ingin/tanya stok
+    $product_intent_patterns = [
+        '/(?:\b(?:iya|ya|oke|ok|mau|take)\b.*\b(?:dong|ya)\b)/',
+        '/(?:\b(?:harga|stok|ready|tersedia)\b.*\b(?:berapa|ada|tidak)\b.*\b(?:dong|ya)\b)/',
+        '/(?:\b(?:cuma|beli|order|pesan)\b.*\b(?:ini|itu|satu)\b)/'
+    ];
+    
+    foreach ($product_intent_patterns as $pattern) {
+        if (preg_match($pattern, $message_lower)) {
+            return true;
+        }
+    }
+    
+    return false;
+}
 
 // Generate contextual name based on conversation
 function generate_contextual_name($session_id, $mysqli) {
@@ -250,9 +288,11 @@ if (isset($_GET['action'])) {
             if (!empty($OPENROUTER_API_KEY) && strpos($OPENROUTER_API_KEY, 'sk-') === 0) {
                 // RAG Logic
                 $context = cari_konteks_produk($msg, $mysqli);
+
                 $system_prompt = "Kamu adalah CS Toko Komputer yang ramah. Jawab dalam Bahasa Indonesia.\n" .
                                  "Jika user tanya harga/stok, gunakan data ini:\n" . $context . 
-                                 "\nJika tidak ada di data, jawab bahwa stok habis atau tidak tersedia.";
+                                 "\nJika tidak ada di data, jawab bahwa stok habis atau tidak tersedia.\n" .
+                                 "\nPENTING: Jika user ingin memesan/membeli produk, berikan nomor telepon: 08500867 untuk kontak pemesanan.";
 
                 // Build History (System + Last 6 messages)
                 $history = [["role" => "system", "content" => $system_prompt]];
@@ -274,10 +314,28 @@ if (isset($_GET['action'])) {
             }
 
 
+
             // Simpan Bot Msg
             $stmt = $mysqli->prepare('INSERT INTO chat_messages(session_id, sender, message) VALUES (?,\'bot\',?)');
             $stmt->bind_param('is', $id, $reply);
             $stmt->execute();
+
+            // Cek intent pemesanan user dan tambahkan nomor telepon jika diperlukan
+            if (deteksi_intent_pemesanan($msg)) {
+                // Cek apakah nomor telepon sudah ada di response bot
+                if (strpos($reply, '08500867') === false) {
+                    // Tambahkan nomor telepon ke response
+                    $reply_with_phone = $reply . "\n\n📞 **Untuk pemesanan, silakan hubungi:** 08500867";
+                    
+                    // Update pesan bot dengan nomor telepon
+                    $stmt = $mysqli->prepare('UPDATE chat_messages SET message=? WHERE session_id=? AND sender=\'bot\' ORDER BY id DESC LIMIT 1');
+                    $stmt->bind_param('si', $reply_with_phone, $id);
+                    $stmt->execute();
+                    
+                    // Return response dengan nomor telepon
+                    $reply = $reply_with_phone;
+                }
+            }
 
             // Auto-update session name based on conversation context
             $new_name = generate_contextual_name($id, $mysqli);
@@ -536,9 +594,38 @@ if (isset($_GET['action'])) {
         animation: sparkle 0.8s ease-out;
     }
     
+
     @keyframes sparkle {
         0% { left: -100%; }
         100% { left: 100%; }
+    }
+
+    /* WhatsApp Link Styling */
+    .whatsapp-link {
+        color: #25D366;
+        text-decoration: none;
+        font-weight: 600;
+        background: rgba(37, 211, 102, 0.1);
+        padding: 2px 6px;
+        border-radius: 4px;
+        border: 1px solid rgba(37, 211, 102, 0.3);
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+    
+    .whatsapp-link:hover {
+        background: rgba(37, 211, 102, 0.2);
+        border-color: #25D366;
+        color: #1ebe57;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(37, 211, 102, 0.2);
+    }
+    
+    .whatsapp-link:before {
+        content: "📱";
+        font-size: 12px;
     }
   </style>
 </head>
@@ -674,10 +761,17 @@ if (isset($_GET['action'])) {
       scrollToBottom();
     }
 
+
     function addBubble(text, sender){
         const b = document.createElement('div');
         // Convert Newlines to <br> for display
-        const cleanText = text.replace(/\n/g, '<br>');
+        let cleanText = text.replace(/\n/g, '<br>');
+        
+        // Replace phone number with WhatsApp link if it's the bot's message
+        if (sender === 'bot' && text.includes('08500867')) {
+            cleanText = text.replace(/(\d{12})/g, '<a href="https://wa.me/$1?text=Halo,%20saya%20tertarik%20dengan%20produk%20yang%20Anda%20jual" target="_blank" class="whatsapp-link">$1</a>');
+        }
+        
         b.className = 'bubble ' + sender;
         b.innerHTML = cleanText;
         messagesEl.appendChild(b);
@@ -944,6 +1038,7 @@ if (isset($_GET['action'])) {
         delete modal.dataset.sessionId;
     }
 
+
     function deleteSingleChat() {
         const modal = el('#confirmSingleModal');
         const sessionId = modal.dataset.sessionId;
@@ -955,8 +1050,25 @@ if (isset($_GET['action'])) {
                 messagesEl.innerHTML = '';
                 currentId = null;
             }
-            loadSessions();
-            hideConfirmSingleModal();
+            // Refresh sessions list dan auto-redirect ke percakapan baru
+            loadSessions().then(() => {
+                // Cek apakah masih ada percakapan lain
+                if(sessionsData.length === 0 || currentId === null) {
+                    // Tidak ada percakapan lain, buat percakapan baru
+                    fetch('?action=new_session').then(r=>r.json()).then(d=>{
+                        currentId = d.id;
+                        loadMessages(d.id);
+                        hideConfirmSingleModal();
+                    });
+                } else {
+                    // Ada percakapan lain, langsung ke percakapan pertama
+                    const firstSession = sessionsData[0];
+                    if(firstSession) {
+                        loadMessages(firstSession.id);
+                    }
+                    hideConfirmSingleModal();
+                }
+            });
         });
     }
 

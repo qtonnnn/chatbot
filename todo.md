@@ -1,83 +1,39 @@
-# TODO - Logika Update Nama Percakapan Otomatis
+# Rencana Implementasi: Menambahkan Nomor Telepon untuk Pemesanan
 
-## Target Fitur
-Buat logika yang ketika user sudah membuat percakapan baru dan kolom percakapan tersebut defaultnya misalnya: "Percakapan 17 Dec 16:52" 
-berubah otomatis jika percakapan sudah terisi akan berubah menjadi konteks sesuai percakapan tersebut
+## Informasi yang Dikumpulkan:
+- Chatbot menggunakan PHP dengan OpenRouter API
+- Struktur database sudah ada dengan tabel produk
+- Response AI menggunakan system prompt untuk konteks produk
+- Sistem RAG sudah aktif untuk mencari produk di database
 
-## Tahapan Pengembangan
+## Plan Implementasi:
 
-### ✅ 1. Backend Logic - Analisis Konteks Percakapan
-- [x] Buat fungsi `generate_contextual_name()` di PHP
-- [x] Analisis 5 pesan terakhir untuk menentukan konteks
-- [x] Deteksi produk yang disebutkan dalam percakapan
-- [x] Mapping kata kunci ke label yang lebih deskriptif
-- [x] Update nama session di database secara otomatis
+### 1. Fungsi Deteksi Intent Pembelian
+- Membuat fungsi `deteksi_intent_pemesanan()` di PHP
+- Mendeteksi kata kunci pembelian: "mau pesan", "order", "beli", "memesan", "pemesanan", "pembelian", dll
+- Menggunakan regex pattern matching
 
-### ✅ 2. Frontend Logic - Update UI Otomatis  
-- [x] JavaScript untuk menerima response `new_name` dari server
-- [x] Update chat title header dengan animasi
-- [x] Refresh sidebar dengan efek animasi
-- [x] Trigger sparkle effect pada nama yang berubah
+### 2. Modifikasi Logic Response
+- Di case 'send_message', tambahkan logic setelah AI response
+- Jika user memiliki intent pembelian, tambahkan nomor telepon ke response
+- Format: "Untuk pemesanan, silakan hubungi: 085791455813"
 
-### ✅ 3. Animasi & UX Enhancements
-- [x] Animasi chat title slide effect
-- [x] Sidebar refresh animation
-- [x] Sparkle effect untuk name change
-- [x] Chat name pulse animation
-- [x] Coordinated timing untuk smooth transitions
+### 3. Update System Prompt
+- Tambahkan instruksi ke AI bahwa nomor telepon harus diberikan untuk pembelian
+- Pastikan AI tidak redundan dalam memberikan nomor telepon
 
-### ✅ 4. Testing & Integration
-- [x] Test scenarios berbeda:
-  - [x] Percakapan tentang produk tertentu
-  - [x] Percakapan tentang harga/stok
-  - [x] Percakapan umum/tanya jawab
-  - [x] Percakapan dengan multiple topik
-- [x] Verifikasi animasi bekerja dengan baik
-- [x] Check performance tidak terpengaruh
+### 4. Testing
+- Test berbagai skenario pembelian
+- Pastikan nomor telepon muncul hanya ketika diperlukan
 
-### ✅ 5. Polish & Optimization
-- [x] Responsive design untuk mobile
-- [x] Error handling untuk edge cases
-- [x] Clean code structure
-- [x] CSS animations optimized
+## File yang akan Diedit:
+- `/opt/lampp/htdocs/chat/index.php` - Menambahkan fungsi deteksi dan modifikasi response
 
-## Implementasi Detail
 
-### Backend (PHP)
-```php
-// generate_contextual_name() sudah implemented
-// Logic: Analisis pesan → Deteksi produk/keyword → Generate nama → Update DB
-```
-
-### Frontend (JavaScript)  
-```javascript
-// sendMessage() → Handle response → Animate name change
-// animateSessionNameUpdate() → Sparkle + pulse effects
-```
-
-### CSS Animations
-```css
-/* .chat-title-updating, .chat-name-updating, .sparkle-effect */
-```
-
-## Status: ✅ SELESAI
-Sistem otomatis update nama percakapan sudah fully implemented dan ready untuk testing.
-
-## Cara Kerja Sistem:
-
-1. **User mengirim pesan** → Pesan disimpan ke database
-2. **Backend анализирует** → `generate_contextual_name()` menganalisis 5 pesan terakhir
-3. **Konteks terdeteksi** → Sistem mendeteksi produk/keyword yang disebutkan
-4. **Nama baru dibuat** → Contoh: "Info CCTV Hikvision 2MP", "Tanya Harga", "Cek Stok"
-5. **Database updated** → Jika nama masih format default, update ke nama kontekstual
-6. **Frontend animates** → JavaScript menerima `new_name` dan memicu animasi:
-   - Chat title slide animation
-   - Sidebar sparkle effect
-   - Smooth transitions dengan timing yang coordinada
-
-## Fitur Unggulan:
-- **Auto-detection produk** dari database toko
-- **Smart keyword mapping** untuk berbagai topik percakapan  
-- **Beautiful animations** untuk user experience yang smooth
-- **Responsive design** yang bekerja di semua device
-- **Performance optimized** dengan analisis yang efisien
+## Steps:
+1. ✅ Analisis file existing
+2. ✅ Buat rencana implementasi  
+3. ✅ Implementasi fungsi deteksi intent
+4. ✅ Modifikasi logic response
+5. ✅ Menambahkan styling WhatsApp link
+6. ✅ Testing dan finalisasi
