@@ -12,7 +12,7 @@ $DB_PASS = "";     // Ubah sesuai password XAMPP Anda (default kosong)
 $DB_NAME = "chatbot";
 
 // API KEY OPENROUTER (Wajib diisi agar Bot pintar)
-$OPENROUTER_API_KEY = "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"; 
+$OPENROUTER_API_KEY = "sk-or-v1-*********************************************8"; 
 
 // Metadata untuk OpenRouter (Wajib)
 $SITE_URL = "http://localhost/chat"; 
@@ -1137,3 +1137,4 @@ if (isset($_GET['action'])) {
   </script>
 </body>
 </html>
+
