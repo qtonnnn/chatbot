@@ -12,7 +12,7 @@ $DB_PASS = "";     // Ubah sesuai password XAMPP Anda (default kosong)
 $DB_NAME = "chatbot";
 
 // API KEY OPENROUTER (Wajib diisi agar Bot pintar)
-$OPENROUTER_API_KEY = "sk-or-v1-************************************************7"; 
+$OPENROUTER_API_KEY = "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"; 
 
 // Metadata untuk OpenRouter (Wajib)
 $SITE_URL = "http://localhost/chat"; 
@@ -283,19 +283,21 @@ if (isset($_GET['action'])) {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Chatbot Toko (PHP Native)</title>
+
   <style>
     :root{--bg:#f6f7fb;--card:#fff;--text:#1f2937;--muted:#6b7280;--primary:#2563eb;--danger:#ef4444}
     *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--text);height:100vh;overflow:hidden;}
+
+    html, body{margin:0;height:100%;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--text);overflow:auto;}
     
     .app{display:grid;grid-template-columns:280px 1fr;height:100vh}
     
     /* Sidebar */
-    .sidebar{background:#fff;border-right:1px solid #e5e7eb;display:flex;flex-direction:column;height:100%}
-    .side-top{padding:15px;border-bottom:1px solid #e5e7eb;display:flex;gap:8px}
+    .sidebar{background:#fff;border-right:1px solid #e5e7eb;display:flex;flex-direction:column;height:100vh;overflow:hidden;}
+    .side-top{padding:15px;border-bottom:1px solid #e5e7eb;display:flex;gap:8px;flex-shrink:0;}
     .btn-new{background:var(--primary);color:#fff;border:none;padding:10px;border-radius:8px;cursor:pointer;flex:1;font-weight:600;}
     .btn-del-all{background:var(--danger);color:#fff;border:none;padding:10px;border-radius:8px;cursor:pointer;}
-    .side-list{overflow-y:auto;flex:1;}
+    .side-list{overflow-y:auto;flex:1;min-height:0;}
     
     .chat-item{padding:12px 15px;border-bottom:1px solid #f3f4f6;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:0.2s}
     .chat-item:hover{background:#f9fafb}
@@ -305,21 +307,30 @@ if (isset($_GET['action'])) {
     .chat-actions button:hover{color:var(--text)}
 
     /* Main Area */
-    .main{display:flex;flex-direction:column;height:100%;background:#fff;}
-    .header{padding:15px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#fff;}
+    .main{display:flex;flex-direction:column;height:100vh;background:#fff;overflow:hidden;}
+    .header{padding:15px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#fff;flex-shrink:0;}
     .chat-title{font-weight:700;font-size:16px;}
     
-    .messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:15px;background:var(--bg);}
+    .messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:15px;background:var(--bg);min-height:0;}
     
     .bubble{max-width:75%;padding:12px 16px;border-radius:12px;line-height:1.5;font-size:15px;position:relative;word-wrap:break-word;}
     .user{align-self:flex-end;background:var(--primary);color:#fff;border-bottom-right-radius:2px;}
     .bot{align-self:flex-start;background:#fff;border:1px solid #e5e7eb;color:var(--text);border-bottom-left-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,0.05);}
     
-    .composer{padding:20px;background:#fff;border-top:1px solid #e5e7eb;display:flex;gap:10px;}
+    .composer{padding:20px;background:#fff;border-top:1px solid #e5e7eb;display:flex;gap:10px;flex-shrink:0;}
     .composer input{flex:1;padding:12px 15px;border:1px solid #d1d5db;border-radius:8px;font-size:15px;outline:none;transition:0.2s;}
     .composer input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,0.1);}
     .composer button{background:var(--primary);color:#fff;border:none;padding:0 20px;border-radius:8px;font-weight:600;cursor:pointer;}
     .composer button:disabled, .composer input:disabled{opacity:0.6;cursor:not-allowed;}
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .app{grid-template-columns:1fr;}
+        .sidebar{display:none;}
+        .main{height:100vh;}
+        .composer{padding:15px;}
+        .messages{padding:15px;}
+    }
 
 
     /* Typing Animation */
