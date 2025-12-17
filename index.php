@@ -280,9 +280,11 @@ if (isset($_GET['action'])) {
 <!doctype html>
 <html lang="id">
 <head>
+
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Chatbot Toko (PHP Native)</title>
+  <link rel="icon" type="image/png" href="logochat.png">
 
   <style>
     :root{--bg:#f6f7fb;--card:#fff;--text:#1f2937;--muted:#6b7280;--primary:#2563eb;--danger:#ef4444}
