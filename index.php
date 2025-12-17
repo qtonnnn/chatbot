@@ -12,7 +12,7 @@ $DB_PASS = "";     // Ubah sesuai password XAMPP Anda (default kosong)
 $DB_NAME = "chatbot";
 
 // API KEY OPENROUTER (Wajib diisi agar Bot pintar)
-$OPENROUTER_API_KEY = "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"; 
+$OPENROUTER_API_KEY = "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"; 
 
 // Metadata untuk OpenRouter (Wajib)
 $SITE_URL = "http://localhost/chat"; 
@@ -117,6 +117,77 @@ function cari_konteks_produk($keyword, $mysqli) {
     return "DATA PRODUK DARI DATABASE:\n" . implode("\n", array_unique($found_products)) . "\n\n";
 }
 
+
+// Generate contextual name based on conversation
+function generate_contextual_name($session_id, $mysqli) {
+    // Ambil 5 pesan terakhir untuk analisis konteks
+    $stmt = $mysqli->prepare('SELECT sender, message FROM chat_messages WHERE session_id=? ORDER BY id DESC LIMIT 5');
+    $stmt->bind_param('i', $session_id);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    
+    $messages = [];
+    while ($row = $res->fetch_assoc()) {
+        $messages[] = $row['message'];
+    }
+    
+    if (empty($messages)) return null;
+    
+    // Gabungkan semua pesan untuk analisis
+    $conversation_text = implode(' ', array_reverse($messages));
+    
+    // Cari produk yang disebutkan dalam percakapan
+    $products_found = [];
+    $stmt = $mysqli->query("SELECT nama_produk FROM produk");
+    while ($row = $stmt->fetch_assoc()) {
+        $product_name = $row['nama_produk'];
+        // Cek apakah produk disebutkan dalam percakapan (case insensitive)
+        if (stripos($conversation_text, $product_name) !== false) {
+            $products_found[] = $product_name;
+        }
+    }
+    
+    // Jika ada produk yang ditemukan, gunakan nama produk
+    if (!empty($products_found)) {
+        $product = $products_found[0]; // Ambil produk pertama yang disebutkan
+        return "Info " . $product;
+    }
+    
+    // Analisis kata kunci untuk menentukan topik
+    $keywords = [
+        'harga' => 'Tanya Harga',
+        'stok' => 'Cek Stok', 
+        'beli' => 'Pembelian',
+        'order' => 'Order',
+        'bayar' => 'Pembayaran',
+        'ongkir' => 'Ongkir',
+        'cctv' => 'Info CCTV',
+        'laptop' => 'Info Laptop',
+        'mouse' => 'Aksesoris Mouse',
+        'harddisk' => 'Storage',
+        'nvr' => 'Info NVR',
+        'kamera' => 'Info Kamera',
+        'asus' => 'Info Asus',
+        'hikvision' => 'Info Hikvision',
+        'logitech' => 'Info Logitech',
+        'seagate' => 'Info Seagate'
+    ];
+    
+    foreach ($keywords as $keyword => $label) {
+        if (stripos($conversation_text, $keyword) !== false) {
+            return $label;
+        }
+    }
+    
+    // Jika tidak ada match spesifik, buat nama berdasarkan pola percakapan
+    if (preg_match('/apa|bagaimana|dimana|kapan|siapa|mengapa|kenapa/i', $conversation_text)) {
+        return "Pertanyaan Umum";
+    }
+    
+    // Default fallback
+    return "Chat Baru";
+}
+
 // Kirim ke OpenRouter
 function kirim_ke_openrouter($history, $apiKey) {
     global $SITE_URL, $SITE_TITLE;
@@ -202,10 +273,31 @@ if (isset($_GET['action'])) {
                 $reply = "API Key belum disetting atau salah format. (Mode Offline)";
             }
 
+
             // Simpan Bot Msg
             $stmt = $mysqli->prepare('INSERT INTO chat_messages(session_id, sender, message) VALUES (?,\'bot\',?)');
             $stmt->bind_param('is', $id, $reply);
             $stmt->execute();
+
+            // Auto-update session name based on conversation context
+            $new_name = generate_contextual_name($id, $mysqli);
+            if ($new_name) {
+                // Cek nama session saat ini
+                $stmt = $mysqli->prepare('SELECT session_name FROM chat_sessions WHERE id=?');
+                $stmt->bind_param('i', $id);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $current_name = $result->fetch_assoc()['session_name'];
+                
+                // Update nama jika masih default dan ada nama baru yang lebih baik
+                if (preg_match('/^Percakapan \d{2} [A-Za-z]{3} \d{2}:\d{2}$/', $current_name) && $new_name !== 'Chat Baru') {
+                    $stmt = $mysqli->prepare('UPDATE chat_sessions SET session_name=? WHERE id=?');
+                    $stmt->bind_param('si', $new_name, $id);
+                    $stmt->execute();
+                    
+                    json_out(['ok'=>true, 'reply'=>$reply, 'new_name'=>$new_name]);
+                }
+            }
 
             json_out(['ok'=>true, 'reply'=>$reply]);
             break;
@@ -342,6 +434,7 @@ if (isset($_GET['action'])) {
     .typing-dot:nth-child(2){animation-delay:-0.16s}
     @keyframes typing{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
 
+
     /* Custom Confirmation Modal */
     .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:1000;opacity:0;visibility:hidden;transition:0.3s;}
     .modal-overlay.show{opacity:1;visibility:visible;}
@@ -359,6 +452,94 @@ if (isset($_GET['action'])) {
     .btn-danger{background:var(--danger);color:#fff;}
     .btn-danger:hover{background:#dc2626;}
     .modal-warning{display:flex;align-items:center;gap:8px;padding:12px;background:#fffbeb;border:1px solid #fed7aa;border-radius:8px;margin-bottom:16px;color:#92400e;font-size:14px;}
+
+    /* Chat Name Animation */
+    .chat-name-updating {
+        animation: nameUpdatePulse 0.6s ease-in-out;
+    }
+    
+    @keyframes nameUpdatePulse {
+        0% { 
+            transform: scale(1);
+            color: var(--text);
+            background: transparent;
+        }
+        25% { 
+            transform: scale(1.05);
+            color: var(--primary);
+            background: rgba(37, 99, 235, 0.1);
+            border-radius: 4px;
+        }
+        50% { 
+            transform: scale(1.08);
+            color: var(--primary);
+            background: rgba(37, 99, 235, 0.15);
+        }
+        75% { 
+            transform: scale(1.05);
+            color: var(--primary);
+            background: rgba(37, 99, 235, 0.1);
+        }
+        100% { 
+            transform: scale(1);
+            color: var(--text);
+            background: transparent;
+        }
+    }
+
+    .chat-title-updating {
+        animation: titleUpdateSlide 0.8s ease-out;
+    }
+    
+    @keyframes titleUpdateSlide {
+        0% { 
+            transform: translateX(-10px);
+            opacity: 0.7;
+            color: var(--muted);
+        }
+        30% { 
+            transform: translateX(0);
+            opacity: 1;
+            color: var(--primary);
+        }
+        100% { 
+            transform: translateX(0);
+            opacity: 1;
+            color: var(--text);
+        }
+    }
+
+    .sidebar-updating {
+        animation: sidebarRefresh 0.5s ease-in-out;
+    }
+    
+    @keyframes sidebarRefresh {
+        0% { opacity: 0.8; }
+        50% { opacity: 0.6; }
+        100% { opacity: 1; }
+    }
+
+    /* Sparkle effect for name change */
+    .sparkle-effect {
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .sparkle-effect::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent);
+        animation: sparkle 0.8s ease-out;
+    }
+    
+    @keyframes sparkle {
+        0% { left: -100%; }
+        100% { left: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -561,16 +742,40 @@ if (isset($_GET['action'])) {
             body: formData
         })
         .then(r=>r.json())
+
         .then(data=>{
             typingDiv.remove(); // Hapus indikator mengetik
             input.disabled = false;
             sendBtn.disabled = false;
             input.focus();
             
+
             if(data.ok){
                 addBubble(data.reply, 'bot');
+                
+                // Jika ada nama baru dari server, update UI dan refresh sidebar
+                if(data.new_name) {
+                    // Animasi untuk chat title
+                    chatTitle.classList.add('chat-title-updating');
+                    setTimeout(() => {
+                        chatTitle.textContent = data.new_name;
+                        setTimeout(() => {
+                            chatTitle.classList.remove('chat-title-updating');
+                        }, 300);
+                    }, 100);
+                    
+                    // Animasi untuk nama di sidebar dengan sparkle effect
+                    setTimeout(() => {
+                        animateSessionNameUpdate();
+                        // Refresh sidebar untuk menampilkan nama yang diperbarui
+                        loadSessions(); 
+                    }, 400);
+                }
+                
                 // Jika ini chat pertama di sesi baru, refresh sidebar
-                loadSessions(); 
+                if(!data.new_name) {
+                    loadSessions(); 
+                }
             } else {
                 addBubble("Error: " + data.error, 'bot');
             }
@@ -792,8 +997,30 @@ if (isset($_GET['action'])) {
         if(e.key === 'Enter') sendMessage();
     };
 
+
     // Init
     loadSessions();
+
+    // Function to animate session name updates in sidebar
+    function animateSessionNameUpdate() {
+        // Add sparkle effect to current active chat item
+        const activeItem = document.querySelector('.chat-item.active .chat-name');
+        if (activeItem) {
+            // Add sparkle effect
+            activeItem.classList.add('sparkle-effect');
+            activeItem.classList.add('chat-name-updating');
+            
+            // Add sidebar refresh effect
+            sessionList.classList.add('sidebar-updating');
+            
+            // Remove effects after animation completes
+            setTimeout(() => {
+                activeItem.classList.remove('sparkle-effect');
+                activeItem.classList.remove('chat-name-updating');
+                sessionList.classList.remove('sidebar-updating');
+            }, 1000);
+        }
+    }
 
   </script>
 </body>
