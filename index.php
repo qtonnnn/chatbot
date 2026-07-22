@@ -23,7 +23,10 @@ $DB_USER = $_ENV['DB_USER'] ?? "root";
 $DB_PASS = $_ENV['DB_PASS'] ?? "";     // Ubah sesuai password XAMPP Anda (default kosong)
 $DB_NAME = $_ENV['DB_NAME'] ?? "chatbot";
 
-$OPENROUTER_API_KEY = $_ENV['OPENROUTER_API_KEY'] ?? ""; 
+// Konfigurasi Provider AI (OpenAI Compatible)
+$API_BASE_URL = rtrim($_ENV['API_BASE_URL'] ?? "http://localhost:20128/v1", '/');
+$API_KEY = $_ENV['API_KEY'] ?? $_ENV['OPENROUTER_API_KEY'] ?? ""; 
+$API_MODEL = $_ENV['API_MODEL'] ?? "flash";
 
 // Nomor telepon untuk pemesanan
 $ORDER_PHONE_NUMBER = $_ENV['ORDER_PHONE_NUMBER'] ?? "085791455813";
@@ -133,36 +136,19 @@ function cari_konteks_produk($keyword, $mysqli) {
 
 
 
-// Fungsi deteksi intent pemesanan
+// Fungsi deteksi intent pemesanan (Hanya jika user eksplisit mau beli/order/tanya kontak)
 function deteksi_intent_pemesanan($message) {
-    // Pattern kata kunci yang menunjukkan user ingin memesan
     $purchase_keywords = [
         'mau pesan', 'mau order', 'memesan', 'pemesanan',
-        'order', 'beli', 'pembelian', 'beli ini', 'beli yang',
-        'pilih produk', 'take this', 'saya mau', 'bisa pesan',
-        'cara pesan', 'proses order', 'transaksi', 'checkout',
-        'bayar', 'pembayaran', 'ongkir', 'kirim', 'delivery',
-        'stok ada', 'ready', 'tersedia', 'tersedia tidak',
-        'stock', 'ready stock', 'stock ada'
+        'cara pesan', 'cara order', 'cara beli', 'mau beli', 
+        'proses order', 'checkout', 'hubungi', 'nomor wa', 
+        'nomor whatsapp', 'nomor telepon', 'kontak sales', 'minta wa', 'transfer'
     ];
     
     $message_lower = strtolower($message);
     
     foreach ($purchase_keywords as $keyword) {
         if (strpos($message_lower, $keyword) !== false) {
-            return true;
-        }
-    }
-    
-    // Cek juga jika user menyebutkan produk spesifik + kata ingin/tanya stok
-    $product_intent_patterns = [
-        '/(?:\b(?:iya|ya|oke|ok|mau|take)\b.*\b(?:dong|ya)\b)/',
-        '/(?:\b(?:harga|stok|ready|tersedia)\b.*\b(?:berapa|ada|tidak)\b.*\b(?:dong|ya)\b)/',
-        '/(?:\b(?:cuma|beli|order|pesan)\b.*\b(?:ini|itu|satu)\b)/'
-    ];
-    
-    foreach ($product_intent_patterns as $pattern) {
-        if (preg_match($pattern, $message_lower)) {
             return true;
         }
     }
@@ -240,13 +226,13 @@ function generate_contextual_name($session_id, $mysqli) {
     return "Chat Baru";
 }
 
-// Kirim ke OpenRouter
-function kirim_ke_openrouter($history, $apiKey) {
+// Kirim ke Provider AI (OpenAI Compatible)
+function kirim_ke_ai($history, $apiKey, $baseUrl, $model) {
     global $SITE_URL, $SITE_TITLE;
     
-    $url = "https://openrouter.ai/api/v1/chat/completions";
+    $url = rtrim($baseUrl, '/') . "/chat/completions";
     $data = [
-        "model" => "openai/gpt-3.5-turbo", // Ganti model lain jika mau (misal: google/gemini-2.0-flash-001)
+        "model" => $model,
         "messages" => $history
     ];
 
@@ -256,6 +242,8 @@ function kirim_ke_openrouter($history, $apiKey) {
         CURLOPT_POST => true,
         CURLOPT_SSL_VERIFYPEER => false, // Bypass SSL untuk Localhost
         CURLOPT_SSL_VERIFYHOST => 0,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 120, // 120 detik timeout untuk model reasoning
         CURLOPT_HTTPHEADER => [
             "Content-Type: application/json",
             "Authorization: Bearer " . $apiKey,
@@ -266,13 +254,81 @@ function kirim_ke_openrouter($history, $apiKey) {
     ]);
 
     $res = curl_exec($ch);
-    if ($res === false) return "Error Koneksi: " . curl_error($ch);
+    if ($res === false) {
+        $err = curl_error($ch);
+        curl_close($ch);
+        return "Error Koneksi: " . $err;
+    }
+    
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    $j = json_decode($res, true);
-    if (isset($j['error'])) return "API Error: " . ($j['error']['message'] ?? 'Unknown');
+    if ($httpCode >= 400) {
+        $jErr = json_decode($res, true);
+        if (isset($jErr['error'])) {
+            $errMsg = is_array($jErr['error']) ? ($jErr['error']['message'] ?? json_encode($jErr['error'])) : $jErr['error'];
+            return "API Error (HTTP " . $httpCode . "): " . $errMsg;
+        }
+        return "API Error (HTTP " . $httpCode . "): " . ($res ?: "Terjadi kesalahan pada server API.");
+    }
+
+    // 1. Coba parse respon SSE / Streaming per baris (data: {...})
+    if (strpos($res, 'data:') !== false) {
+        $lines = explode("\n", $res);
+        $streamContent = "";
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (strpos($line, 'data:') === 0) {
+                $jsonPart = trim(substr($line, 5));
+                if ($jsonPart === '[DONE]') continue;
+                $chunkObj = json_decode($jsonPart, true);
+                if ($chunkObj) {
+                    if (isset($chunkObj['choices'][0]['delta']['content'])) {
+                        $streamContent .= $chunkObj['choices'][0]['delta']['content'];
+                    } elseif (isset($chunkObj['choices'][0]['message']['content'])) {
+                        $streamContent .= $chunkObj['choices'][0]['message']['content'];
+                    }
+                }
+            }
+        }
+        if (!empty(trim($streamContent))) {
+            return trim($streamContent);
+        }
+    }
+
+    // 2. Parse sebagai objek JSON tunggal
+    $jsonStr = $res;
+    if (preg_match('/\{.*\}/s', $res, $matches)) {
+        $jsonStr = $matches[0];
+    }
+
+    $j = json_decode($jsonStr, true);
     
-    return $j['choices'][0]['message']['content'] ?? "Maaf, tidak ada respon.";
+    if (isset($j['error'])) {
+        $errMsg = is_array($j['error']) ? ($j['error']['message'] ?? json_encode($j['error'])) : $j['error'];
+        return "API Error (HTTP " . $httpCode . "): " . $errMsg;
+    }
+    
+    // Coba beberapa struktur respon yang umum (OpenAI format, reasoning content, text format, dll)
+    $content = $j['choices'][0]['message']['content'] 
+            ?? $j['choices'][0]['message']['reasoning_content']
+            ?? $j['choices'][0]['delta']['content']
+            ?? $j['choices'][0]['text'] 
+            ?? $j['response'] 
+            ?? $j['content'] 
+            ?? null;
+
+    if ($content !== null && $content !== '') {
+        return $content;
+    }
+    
+    return "API Error: Respon dari API kosong atau format tidak sesuai. (HTTP " . $httpCode . "): " . substr($res, 0, 200);
+}
+
+// Fallback untuk backward compatibility
+function kirim_ke_openrouter($history, $apiKey) {
+    global $API_BASE_URL, $API_MODEL;
+    return kirim_ke_ai($history, $apiKey, $API_BASE_URL, $API_MODEL);
 }
 
 /**
@@ -299,15 +355,18 @@ if (isset($_GET['action'])) {
 
             $reply = "";
 
-            if (!empty($OPENROUTER_API_KEY) && strpos($OPENROUTER_API_KEY, 'sk-') === 0) {
+            if (!empty($API_KEY)) {
                 // RAG Logic
                 $context = cari_konteks_produk($msg, $mysqli);
 
 
-                $system_prompt = "Kamu adalah CS Toko Komputer yang ramah. Jawab dalam Bahasa Indonesia.\n" .
-                                 "Jika user tanya harga/stok, gunakan data ini:\n" . $context . 
-                                 "\nJika tidak ada di data, jawab bahwa stok habis atau tidak tersedia.\n" .
-                                 "\nPENTING: Jika user ingin memesan/membeli produk, berikan nomor telepon: $ORDER_PHONE_NUMBER untuk kontak pemesanan.";
+                $system_prompt = "Kamu adalah Customer Service sekaligus Sales Spesialis Toko Komputer & Teknologi yang sangat ramah, antusias, persuasif, dan pandai mencairkan suasana.\n\n" .
+                                 "PANDUAN GAYA BALASAN & PERILAKU SALES:\n" .
+                                 "1. Awali setiap balasan dengan sapaan hangat dan basa-basi ala sales profesional yang menarik (misal: memuji pilihan produk pelanggan, menanyakan kebutuhan spesifik, atau memberikan kata-kata promosi yang menggoda minat beli).\n" .
+                                 "2. Jika pelanggan menanyakan harga/stok/produk, gunakan data katalog resmi toko berikut sebagai referensi utama:\n" . $context . "\n" .
+                                 "3. Jika produk yang dicari tidak ada di data katalog, jawab secara halus dan beri penawaran rekomendasi produk lain yang cocok dengan gaya sales yang menarik.\n" .
+                                 "4. Gunakan bahasa Indonesia yang santun, ceria, persuasif, serta jelaskan keunggulan produk agar pembeli semakin tertarik.\n" .
+                                 "5. ATURAN NOMOR WHATSAPP: JANGAN mencantumkan nomor telepon/WA jika pelanggan hanya bertanya stok, harga, atau informasi produk. HANYA berikan nomor Telepon/WA resmi kami ($ORDER_PHONE_NUMBER) jika pelanggan secara eksplisit menyatakan ingin memesan, membeli, atau meminta nomor kontak pemesanan.";
 
                 // Build History (System + Last 6 messages)
                 $history = [["role" => "system", "content" => $system_prompt]];
@@ -323,7 +382,7 @@ if (isset($_GET['action'])) {
                 }
                 $history = array_merge($history, array_reverse($temp_hist));
 
-                $reply = kirim_ke_openrouter($history, $OPENROUTER_API_KEY);
+                $reply = kirim_ke_ai($history, $API_KEY, $API_BASE_URL, $API_MODEL);
             } else {
                 $reply = "API Key belum disetting atau salah format. (Mode Offline)";
             }
@@ -659,7 +718,7 @@ if (isset($_GET['action'])) {
     <main class="main">
       <div class="header">
         <div class="chat-title" id="chatTitle">Percakapan Baru</div>
-        <div style="font-size:12px;color:#6b7280">AI Assistant (OpenRouter)</div>
+        <div style="font-size:12px;color:#6b7280">AI Assistant (OpenAI Compatible)</div>
       </div>
       
       <div id="messages" class="messages">
